@@ -135,17 +135,53 @@ feple-server/
 
 ## 사용 방법
 
-### 1. 상담 데이터 분석 실행
+### 방법 1: Docker 사용 (권장)
+
+#### 1. Docker 환경 시작
 ```bash
+# 환경 변수 설정
+cp feple-server/env_template.txt feple-server/.env
+# .env 파일 편집
+
+# Docker 환경 시작
+./docker-start.sh
+```
+
+#### 2. 분석 실행
+```bash
+# 컨테이너에서 분석 실행
+docker-compose -f feple-server/docker-compose.yml run --rm analyzer
+
+# 또는 직접 실행
+docker-compose -f feple-server/docker-compose.yml exec web python run_analysis.py
+```
+
+#### 3. 서비스 관리
+```bash
+# 상태 확인
+docker-compose -f feple-server/docker-compose.yml ps
+
+# 로그 확인
+docker-compose -f feple-server/docker-compose.yml logs -f web
+
+# 서비스 중지
+docker-compose -f feple-server/docker-compose.yml down
+```
+
+### 방법 2: 로컬 환경 사용
+
+#### 1. 상담 데이터 분석 실행
+```bash
+cd feple-server
 python run_analysis.py
 ```
 
-### 2. 분석 결과 조회
+#### 2. 분석 결과 조회
 ```bash
 python query_analysis_results.py
 ```
 
-### 3. 샘플 데이터 생성
+#### 3. 샘플 데이터 생성
 ```bash
 python create_sample_data.py
 ```
