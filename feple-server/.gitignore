@@ -1,1 +1,87 @@
+# 환경 변수 파일
 .env
+.env.local
+.env.production
+
+# 로그 파일
+logs/
+*.log
+
+# 데이터베이스 백업
+*.sql
+*.db
+
+# Python 관련
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 가상환경
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# 분석 결과
+analysis_results.json
+analysis_results_*.json
+
+# 임시 파일
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 미디어 파일 (큰 용량)
+media/
+static/collected/
+
+# 테스트 커버리지
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Django 관련
+*.pot
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Celery 관련
+celerybeat-schedule
+celerybeat.pid
+
+# Docker 관련
+.dockerignore
+Dockerfile
+docker-compose.yml

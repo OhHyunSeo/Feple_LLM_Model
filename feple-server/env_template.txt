@@ -1,0 +1,37 @@
+# Django 설정
+DJANGO_SECRET_KEY=your-secret-key-here
+DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1,*
+
+# 데이터베이스 설정
+DB_ENGINE=django.db.backends.mysql
+DB_NAME=feple
+DB_USER=root
+DB_PASSWORD=your-db-password
+DB_HOST=localhost
+DB_PORT=3306
+
+# 분석 결과 저장용 데이터베이스
+ANALYSIS_DB_URI=mysql://root:your-db-password@localhost:3306/feple_analysis
+
+# Google API 설정
+GOOGLE_API_KEY=your-google-api-key-here
+
+# 미디어 파일 설정
+MEDIA_ROOT=/path/to/media/files
+MEDIA_URL=/media/
+
+# 분석 설정
+HOP_LENGTH=512
+
+# Callytics / Consultlytics URL
+CALLYTICS_URL=http://localhost:8000
+CONSULTYTICS_URL=http://localhost:8001
+
+# Celery 설정
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/0
+
+# 로깅 설정
+LOG_LEVEL=INFO
+LOG_FILE_PATH=logs/consultlytics.log 
