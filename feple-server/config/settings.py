@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 from django.contrib.auth.context_processors import auth
 from dotenv import load_dotenv
+import logging.config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,10 +23,14 @@ load_dotenv(BASE_DIR / ".env")
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-ALLOWED_HOSTS = ['*']
+# 보안 설정 개선
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
-SECRET_KEY        = os.getenv("DJANGO_SECRET_KEY", "django-insecure-development-key")
-DEBUG             = True
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("DJANGO_SECRET_KEY 환경 변수가 설정되지 않았습니다.")
+
+DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 
 # Application definition
 
@@ -74,12 +79,17 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.mysql",
-        "NAME": "feple",
-        "USER": "root",
-        "PASSWORD": "1234",
-        "HOST": "localhost",
-        "PORT": "3306",
+        "ENGINE": os.getenv("DB_ENGINE", "django.db.backends.mysql"),
+        "NAME": os.getenv("DB_NAME", "feple"),
+        "USER": os.getenv("DB_USER", "root"),
+        "PASSWORD": os.getenv("DB_PASSWORD"),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "3306"),
+        "OPTIONS": {
+            "sql_mode": "traditional",
+            "charset": "utf8mb4",
+            "init_command": "SET default_storage_engine=INNODB",
+        }
     }
 }
 
@@ -137,3 +147,64 @@ CONSULTYTICS_URL  = os.getenv("CONSULTYTICS_URL")
 # Celery 설정
 CELERY_BROKER_URL     = os.getenv("CELERY_BROKER_URL")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND")
+
+# 보안 설정 강화
+if not DEBUG:
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
+    SECURE_HSTS_SECONDS = 86400
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+# 로깅 설정
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", "logs/consultlytics.log")
+
+# 로그 디렉토리 생성
+os.makedirs(os.path.dirname(LOG_FILE_PATH), exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': LOG_LEVEL,
+            'class': 'logging.FileHandler',
+            'filename': LOG_FILE_PATH,
+            'formatter': 'verbose',
+        },
+        'console': {
+            'level': LOG_LEVEL,
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'root': {
+        'handlers': ['file', 'console'],
+        'level': LOG_LEVEL,
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+        'apps.consultlytics': {
+            'handlers': ['file', 'console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+    },
+}

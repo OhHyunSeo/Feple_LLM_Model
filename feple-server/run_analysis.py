@@ -1,6 +1,8 @@
 import os
 import json
-import requests
+import logging
+from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import django
 import datetime
@@ -17,10 +19,16 @@ django.setup()
 
 from apps.consultlytics.models import Consulting
 from apps.consultlytics.services import analyze_consultation
+from apps.consultlytics.utils import (
+    get_all_consulting_data, 
+    save_analysis_results_to_file, 
+    format_analysis_result,
+    chunk_list,
+    validate_api_key
+)
 
-# API 키 설정
-API_KEY = os.getenv('GOOGLE_API_KEY')
-API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={API_KEY}"
+# 로깅 설정
+logger = logging.getLogger(__name__)
 
 def get_consulting_data_from_db():
     """데이터베이스에서 최신 상담 데이터를 가져옵니다."""
@@ -152,47 +160,153 @@ def serialize_for_llm(obj):
         return [serialize_for_llm(v) for v in obj]
     return obj
 
-def analyze_consulting_data(consulting_data):
-    """상담 데이터 분석 및 코칭 코멘트 생성"""
+def analyze_single_consultation(consulting_data: Consulting) -> Dict[str, Any]:
+    """
+    단일 상담 데이터 분석
+    
+    Args:
+        consulting_data: 상담 데이터 객체
+        
+    Returns:
+        분석 결과 딕셔너리
+    """
     try:
+        logger.info(f"상담 분석 시작: {consulting_data.call_id}")
         result = analyze_consultation(consulting_data.call_id)
-        return result["analysis"]
+        
+        if result:
+            logger.info(f"상담 분석 완료: {consulting_data.call_id}")
+            return format_analysis_result(consulting_data.call_id, result.get("analysis", {}))
+        else:
+            logger.error(f"상담 분석 실패: {consulting_data.call_id}")
+            return format_analysis_result(consulting_data.call_id, {})
+            
     except Exception as e:
-        print(f"LLM 분석 중 오류 발생: {str(e)}")
-        return None
+        logger.error(f"상담 분석 중 오류 발생 ({consulting_data.call_id}): {str(e)}")
+        return format_analysis_result(consulting_data.call_id, {})
+
+
+def analyze_consultations_batch(consulting_data_list: List[Consulting], 
+                              max_workers: int = 3,
+                              batch_size: int = 10) -> List[Dict[str, Any]]:
+    """
+    배치 단위로 상담 데이터를 분석 (병렬 처리)
+    
+    Args:
+        consulting_data_list: 분석할 상담 데이터 리스트
+        max_workers: 최대 동시 실행 스레드 수
+        batch_size: 배치 크기
+        
+    Returns:
+        분석 결과 리스트
+    """
+    all_results = []
+    total_count = len(consulting_data_list)
+    
+    logger.info(f"총 {total_count}개의 상담 데이터 분석 시작")
+    
+    # 배치 단위로 처리
+    for batch_num, batch in enumerate(chunk_list(consulting_data_list, batch_size), 1):
+        logger.info(f"배치 {batch_num} 처리 중 ({len(batch)}개 항목)")
+        
+        # 병렬 처리
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_consulting = {
+                executor.submit(analyze_single_consultation, consulting): consulting 
+                for consulting in batch
+            }
+            
+            batch_results = []
+            for future in as_completed(future_to_consulting):
+                consulting = future_to_consulting[future]
+                try:
+                    result = future.result()
+                    batch_results.append(result)
+                    
+                    # 진행 상황 출력
+                    completed = len(all_results) + len(batch_results)
+                    logger.info(f"진행률: {completed}/{total_count} ({completed/total_count*100:.1f}%)")
+                    
+                except Exception as e:
+                    logger.error(f"배치 처리 중 오류 ({consulting.call_id}): {str(e)}")
+                    batch_results.append(format_analysis_result(consulting.call_id, {}))
+        
+        all_results.extend(batch_results)
+        
+        # 배치 완료 로그
+        logger.info(f"배치 {batch_num} 완료")
+    
+    logger.info(f"전체 분석 완료: {len(all_results)}개 결과")
+    return all_results
+
+
+def print_analysis_summary(results: List[Dict[str, Any]]) -> None:
+    """분석 결과 요약 출력"""
+    total_count = len(results)
+    successful_count = sum(1 for r in results if r.get("status") == "completed")
+    failed_count = total_count - successful_count
+    
+    print(f"\n{'='*60}")
+    print(f"분석 결과 요약")
+    print(f"{'='*60}")
+    print(f"총 분석 요청: {total_count}개")
+    print(f"성공: {successful_count}개")
+    print(f"실패: {failed_count}개")
+    print(f"성공률: {successful_count/total_count*100:.1f}%" if total_count > 0 else "성공률: 0%")
+    print(f"{'='*60}\n")
+
 
 def main():
-    # 모든 상담 데이터 조회
-    consulting_data_list = Consulting.objects.all().order_by('call_id')
-    
-    if not consulting_data_list:
-        print("분석할 데이터가 없습니다.")
-        return
+    """메인 함수"""
+    try:
+        # API 키 유효성 검사
+        if not validate_api_key():
+            logger.error("Google API 키가 설정되지 않았거나 유효하지 않습니다.")
+            print("Google API 키를 확인해주세요.")
+            return
         
-    all_results = []
-    # 각 상담 데이터별 분석 실행
-    for consulting_data in consulting_data_list:
-        print(f"\n{'='*50}")
-        print(f"상담 데이터 분석 결과 (CALL_ID: {consulting_data.call_id})")
-        print(f"{'='*50}")
+        # 상담 데이터 조회
+        logger.info("상담 데이터 조회 시작")
+        consulting_data_list = get_all_consulting_data()
         
-        # 분석 실행
-        analysis_result = analyze_consulting_data(consulting_data)
+        if not consulting_data_list:
+            logger.warning("분석할 데이터가 없습니다.")
+            print("분석할 데이터가 없습니다.")
+            return
         
-        # 분석 결과 출력
-        print(json.dumps(analysis_result, ensure_ascii=False, indent=2))
-        print(f"\n{'='*50}\n")
+        logger.info(f"총 {len(consulting_data_list)}개의 상담 데이터 발견")
         
-        # 파일 저장용 리스트에 추가
-        all_results.append({
-            "call_id": consulting_data.call_id,
-            "analysis": analysis_result
-        })
-
-    # 모든 결과를 파일로 저장
-    with open("analysis_results.json", "w", encoding="utf-8") as f:
-        json.dump(all_results, f, ensure_ascii=False, indent=2)
-    print("\n분석 결과가 analysis_results.json 파일에 저장되었습니다.")
+        # 병렬 분석 실행
+        print(f"상담 데이터 분석을 시작합니다... (총 {len(consulting_data_list)}개)")
+        all_results = analyze_consultations_batch(
+            consulting_data_list, 
+            max_workers=3,  # API 제한을 고려하여 동시 요청 수 제한
+            batch_size=10
+        )
+        
+        # 결과 요약 출력
+        print_analysis_summary(all_results)
+        
+        # 개별 결과 출력 (처음 3개만)
+        for i, result in enumerate(all_results[:3]):
+            print(f"\n{'='*50}")
+            print(f"상담 데이터 분석 결과 {i+1} (CALL_ID: {result.get('call_id', 'Unknown')})")
+            print(f"{'='*50}")
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            print(f"{'='*50}\n")
+        
+        if len(all_results) > 3:
+            print(f"... 외 {len(all_results) - 3}개 결과는 파일을 확인해주세요.")
+        
+        # 결과 파일 저장
+        if save_analysis_results_to_file(all_results):
+            print("✅ 분석 결과가 analysis_results.json 파일에 저장되었습니다.")
+        else:
+            print("❌ 파일 저장 중 오류가 발생했습니다.")
+            
+    except Exception as e:
+        logger.error(f"메인 함수 실행 중 오류: {str(e)}")
+        print(f"프로그램 실행 중 오류가 발생했습니다: {str(e)}")
 
 if __name__ == "__main__":
     main()
