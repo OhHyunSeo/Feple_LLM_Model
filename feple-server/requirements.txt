@@ -4,7 +4,7 @@ djangorestframework==3.16.0
 django-cors-headers==4.5.0
 
 # Database
-mysqlclient==2.2.7
+psycopg2-binary==2.9.9
 sqlalchemy==2.0.28
 
 # Environment & Configuration
